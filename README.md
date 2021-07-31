@@ -4,6 +4,10 @@ This includes the code for running the task and the analyses reported in "_Mnemo
 
 Data and stimuli: https://osf.io/thzub/ 
 
+simPEL9 = Experiment 1
+simPEL11_associative = Experiment 2
+simPEL11_item = Experiment 3
+
 ## running_exp_code folder:
 This is the code we used to run the experiments.
 Experiments 2 and 3 were run using exactly the same code, only the instructions to the participants were different.
@@ -29,5 +33,18 @@ The other files are auxilary functions, called by the other scripts.
 
 ## Analysis folder:
 
+_simPEL9_analyse_AllLearningPhases_AB_mem_Oded_: analyse each participant's learning data (predictive pairs learning, reminder, violation phases), creates a matlab structure with the group data.
 
+_simPEL9_group_learning_analyses_Oded_: run the group level analyses on the learning data.
+In the paper - this is all reported in the Supplementary. The accuracy reported is based on this script. This script also includes some additional plotting and RT analysis, but the better way to analyse RTs is using gLMM (Lo 2015), so I did it this way, and this is reported in the paper, based on the R code (see below)
+
+_simPEL9_analyse_recExplicit_Oded_:analyse each participant's item memory and associative memory data, creates a matlab structure with the group data.
+
+_simPEL9_group_rec_explicit_analysesOded_: run the group lavel analyses for the item and associative memory data - analyses in this code are reported in the paper.
+
+* Exp2 and 3 were the same only with the modification of the task. simPEL11associative... refers to Exp2, simPEL11item refers to Exp3.
+* 
+* rmANOVA folder: scripts for running rmANOVA in MATLAB, used in other analysis scripts.
+* add here about the change accuracy.
+I did the learning files, stoped at simPEL9_recExplicit..
 
