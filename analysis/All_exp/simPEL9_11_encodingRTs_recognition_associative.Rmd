@@ -1,0 +1,1554 @@
+---
+title: "simPEL11 R analysis notebook"
+output: html_notebook
+---
+
+## set up
+```{r setup}
+# clear workspace
+rm(list = ls())
+
+#load libraries
+library(tidyverse)
+library(reshape2) #for melt/dcast - transform data
+#library(dplyr) - uploaded with tidyverse
+library(Matrix)
+library(lme4)
+library(lmerTest)
+library(knitr)
+library(reshape)
+library(effsize)
+
+#fir checking ANOVA assumptions
+library(rstatix)
+
+#other stats stuff:
+library(sjstats)
+library(ggeffects)
+
+#things for graphs:
+#library(ggplot2) - uploaded with tidyverse
+library(ggpubr)
+library(gridExtra) #that's for the grid.arrange
+library(RColorBrewer)
+
+#library(heplots)
+#projct directories
+proj_dir <- sprintf("/Volumes/data/Bein/simPEL/") #simPEL11_onlyConsSameSimilarItemTask")
+
+setwd(proj_dir)
+knitr::opts_knit$set(root.dir = proj_dir)
+
+theme_all_exp <- theme_classic() +
+  theme(panel.border = element_rect(color = "black", fill = NA, size = 1),
+        axis.title.x = element_text(size = 22),
+        axis.text.x = element_text(size = 12),
+        axis.title.y = element_text(size = 22),
+        strip.text = element_text(size = 18),
+        title = element_text(size = 24),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 18))
+       
+#more elements:
+# legend.title = element_blank(),,
+#legend.background = element_rect(fill= rgb(0.9,0.9,0.9))
+```
+
+## load data
+```{r load data}
+#analyse behavior - simPEL9 associative encoding RT - using gLMM with the inverse gaussian function (Lo et al. 2015)
+results_dir <- paste(proj_dir,"simPEL9_onlyConsSameSimilarHalf/analysis/files_forR",sep="/")
+setwd(results_dir)
+
+#simPEL9 Associative task (Experiemnt 1): load all data:
+simPEL9ass.init_learning_data <- read.table(paste(results_dir, "simPEL9_associative_encoding_day1_init.txt",sep="/"),header = TRUE,sep = "\t",dec = ".")
+simPEL9ass.reminder_data <-  read.table(paste(results_dir, "simPEL9_associative_encoding_rem.txt",sep="/"),header = TRUE,sep = "\t",dec = ".")
+simPEL9ass.er_block_data <- read.table(paste(results_dir, "simPEL9_associative_encoding_er_block.txt",sep="/"),header = TRUE,sep = "\t",dec = ".")
+
+#analyse behavior - simPEL 11 associative encoding RT - using gLMM with the inverse gaussian function (Lo et al. 2015)
+results_dir <- paste(proj_dir,"simPEL11_onlyConsSameSimilarItemTask/analysis/files_forR",sep="/")
+setwd(results_dir)
+
+#Associative task (Experiemnt 2): load all data:
+simPEL11ass.init_learning_data <- read.table(paste(results_dir, "simPEL11_associative_encoding_day1_init.txt",sep="/"),header = TRUE,sep = "\t",dec = ".")
+simPEL11ass.reminder_data <-  read.table(paste(results_dir, "simPEL11_associative_encoding_rem.txt",sep="/"),header = TRUE,sep = "\t",dec = ".")
+simPEL11ass.er_block_data <- read.table(paste(results_dir, "simPEL11_associative_encoding_er_block.txt",sep="/"),header = TRUE,sep = "\t",dec = ".")
+
+#Item (Experiment 3): load all data:
+simPEL11item.init_learning_data <- read.table(paste(results_dir, "simPEL11_item_encoding_day1_init.txt",sep="/"),header = TRUE,sep = "\t",dec = ".")
+simPEL11item.reminder_data <-  read.table(paste(results_dir, "simPEL11_item_encoding_rem.txt",sep="/"),header = TRUE,sep = "\t",dec = ".")
+simPEL11item.er_block_data <- read.table(paste(results_dir, "simPEL11_item_encoding_er_block.txt",sep="/"),header = TRUE,sep = "\t",dec = ".")
+
+# it makes sense to have one big data set with all experiments for each part:
+#initial learning:
+simPEL9ass.init_learning_data$Exp = 1
+simPEL9ass.reminder_data$Exp = 1
+simPEL9ass.er_block_data$Exp = 1
+
+simPEL11ass.init_learning_data$Exp = 2
+simPEL11ass.reminder_data$Exp = 2
+simPEL11ass.er_block_data$Exp = 2
+
+simPEL11item.init_learning_data$Exp = 3
+simPEL11item.reminder_data$Exp = 3
+simPEL11item.er_block_data$Exp = 3
+
+#now, if we analyse some studies together, the participants have the same numbers - that's not good. So modify participant's numbers:
+simPEL9ass.init_learning_data$subID = factor(simPEL9ass.init_learning_data$subject + 1000)
+simPEL9ass.reminder_data$subID = factor(simPEL9ass.reminder_data$subject + 1000)
+simPEL9ass.er_block_data$subID = factor(simPEL9ass.er_block_data$subject + 1000)
+
+simPEL11ass.init_learning_data$subID = factor(simPEL11ass.init_learning_data$subject + 2000)
+simPEL11ass.reminder_data$subID = factor(simPEL11ass.reminder_data$subject + 2000)
+simPEL11ass.er_block_data$subID = factor(simPEL11ass.er_block_data$subject + 2000)
+
+simPEL11item.init_learning_data$subID = factor(simPEL11item.init_learning_data$subject + 3000)
+simPEL11item.reminder_data$subID = factor(simPEL11item.reminder_data$subject + 3000)
+simPEL11item.er_block_data$subID = factor(simPEL11item.er_block_data$subject + 3000)
+
+init_learning_data=bind_rows(simPEL9ass.init_learning_data,simPEL11ass.init_learning_data,simPEL11item.init_learning_data)
+
+reminder_data=bind_rows(simPEL9ass.reminder_data,simPEL11ass.reminder_data,simPEL11item.reminder_data)
+
+er_block_data=bind_rows(simPEL9ass.er_block_data,simPEL11ass.er_block_data,simPEL11item.er_block_data)
+
+```
+# analyse initial learning block - gLMM
+```{r analyse initial learning block - gLMM}
+#conditions:
+#1-v 2-nv
+#analysis per experiment:
+exp_label=c('Exp1: simPEL9','Exp2: simPEL11_ass','Exp3: simPEL11_item')
+analyse_cond <- 0
+only_Bmem <- 0
+for (curr_exp in 1:3) {
+  print(sprintf("**********%s: initial learning**********",exp_label[curr_exp]))
+  #choose current experiment:
+  curr_data <- filter(init_learning_data,init_learning_data$Exp == curr_exp)
+  #clean up:
+  curr_data<- filter(curr_data,!(is.na(curr_data$RTs)))
+  curr_data<- curr_data %>%
+  mutate(fac_cond = factor(condition)) %>%
+  mutate(subID = factor(subID)) %>%
+  mutate(fac_AB = factor(loc_in_pair)) %>%  
+  mutate(sc_rep = scale(repetition)) %>% 
+  mutate(exp_rep = exp(1/repetition)) %>% 
+  mutate(scaleRT = scale(RTs, center = FALSE)) %>%
+  mutate(allA_accurate = ifelse(loc_in_pair == 1 | resp_acc == 1, 1,0))
+  #take only accurate responses:
+  #for Exp 1 and 2, use the allA_accurate - to ignore accuracy for A items (first items in the pairs).
+  #for Exp3, take only accurate A items, since the response was per item.
+  if (curr_exp < 3) {
+    curr_data=curr_data[curr_data$allA_accurate == 1,] 
+  } else {
+    curr_data=curr_data[curr_data$resp_acc == 1,] 
+  }
+  #the previous one might still leave some resp_big_small as nan, if participants pressed another key. We don't want to analyze these (not much, as we don't know what happened in them)
+  curr_data=curr_data[!is.na(curr_data$resp_big_small),]
+  #participants numbers:
+  n=as.numeric(length(unique(curr_data$subject)))
+  
+  if (only_Bmem == 0) {
+  #model:
+  null_mdl=glmer(scaleRT ~ (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  resp_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  print(sprintf("%s: initial learning: big/small response:",exp_label[curr_exp]))
+  print(anova(null_mdl,resp_mdl))
+  
+  #in Exp1, response explains variance, so add it
+  null_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  #item type (1/2):
+  AB_mdl=glmer(scaleRT ~ fac_AB + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  print(sprintf("%s: initial learning: main effect of first/second item:",exp_label[curr_exp]))
+  print(anova(null_mdl,AB_mdl))
+  curr_AIC <- AIC(null_mdl,AB_mdl)
+  print(sprintf("AIC diff: %.0f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+  print("")
+
+  #repetition:
+  rep_mdl=glmer(scaleRT ~ sc_rep + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  #since the shape of the decrease is not linear, we fit a decrease exponential (exp(1/rep))
+  #first, the linear one did not converge, but second - this explains better the data.
+  exp_rep_mdl=glmer(scaleRT ~ exp_rep + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  print(anova(rep_mdl,exp_rep_mdl))
+  print(sprintf("%s: initial learning: repetition:",exp_label[curr_exp]))
+  print(anova(null_mdl,exp_rep_mdl))
+  curr_AIC <- AIC(null_mdl,exp_rep_mdl)
+  print(sprintf("AIC diff: %.0f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+  print("")
+  #interaction of AB item by repetition:
+  ABandRep_mdl=glmer(scaleRT ~ exp_rep + fac_AB + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  
+  ABbyRep_mdl=glmer(scaleRT ~ exp_rep*fac_AB + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  print(sprintf("%s: initial learning: AB items by repetition:",exp_label[curr_exp]))
+  print(anova(ABandRep_mdl,ABbyRep_mdl))
+  #the interaction term is positive. But note that I put exponential decrease as the repetition factor - so positive means larger exponential decrease. To further examine:
+  Adata=curr_data[curr_data$fac_AB == 1,]
+  Bdata=curr_data[curr_data$fac_AB == 2,]
+  exp_rep_mdl=glmer(scaleRT ~ exp_rep + resp_big_small + (1 | subID),data = Adata,family = inverse.gaussian(link = 'identity'))
+  summary(exp_rep_mdl)
+  exp_rep_mdl=glmer(scaleRT ~ exp_rep + resp_big_small + (1 | subID),data = Bdata,family = inverse.gaussian(link = 'identity'))
+  summary(exp_rep_mdl)
+  #the coefficient of the exp decrease is larger for Bdata.
+  
+  if (analyse_cond == 1) {
+  #test the effects of condition: shouldn't be any:
+  cond_mdl=glmer(scaleRT ~ fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  print(sprintf("%s: initial learning: condition:",exp_label[curr_exp]))
+  print(anova(null_mdl,cond_mdl))
+  
+  cond_and_rep_mdl=glmer(scaleRT ~ fac_cond+exp_rep + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  cond_by_rep_mdl=glmer(scaleRT ~ fac_cond*exp_rep + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  print(sprintf("%s: initial learning: condition by rep:",exp_label[curr_exp]))
+  print(anova(cond_and_rep_mdl,cond_by_rep_mdl))
+  
+  cond_and_rep_and_AB_mdl=glmer(scaleRT ~ fac_cond*exp_rep + fac_cond*fac_AB + exp_rep*fac_AB + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  cond_by_rep_by_AB_mdl=glmer(scaleRT ~ fac_cond*exp_rep*fac_AB + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  print(sprintf("%s: initial learning: condition by rep by AB items:",exp_label[curr_exp]))
+  print(anova(cond_and_rep_and_AB_mdl,cond_by_rep_by_AB_mdl))
+   } #analyse the condition
+  
+  } #ends the only Bmem if
+  ## analysis by AB memory:
+  #if (curr_exp < 3) {
+    
+    null_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  
+   Bmem_mdl=glmer(scaleRT ~ Bmemory + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+    print(sprintf("%s: initial learning: main effect of Bmemory:",exp_label[curr_exp]))
+    print(anova(null_mdl,Bmem_mdl))   
+    
+    #interaction of Bmem by repetition:
+  BmemandRep_mdl=glmer(scaleRT ~ exp_rep + Bmemory + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  
+  BmembyRep_mdl=glmer(scaleRT ~ exp_rep*Bmemory + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  print(sprintf("%s: initial learning: Bmem by repetition:",exp_label[curr_exp]))
+  print(anova(BmemandRep_mdl,BmembyRep_mdl))
+  
+  #interaction of Bmem by repetition by item:
+  BmemAndRepAndItem_mdl=glmer(scaleRT ~ exp_rep*Bmemory + exp_rep*fac_AB + Bmemory*fac_AB + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  
+  BmembyRepbyItem_mdl=glmer(scaleRT ~ exp_rep*Bmemory*fac_AB + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  
+  
+  print(sprintf("%s: initial learning: Bmem by repetition by item type:",exp_label[curr_exp]))
+  print(anova(BmemAndRepAndItem_mdl,BmembyRepbyItem_mdl))
+  curr_AIC <- AIC(BmemAndRepAndItem_mdl,BmembyRepbyItem_mdl)
+  print(sprintf("AIC diff: %.0f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+  print("")
+  
+  #### now without the interaction, but only taking remembered B items:
+  Bmem_data <- filter(curr_data,curr_data$Bmemory == 1)
+  
+  null_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = Bmem_data,family = inverse.gaussian(link = 'identity'))
+  
+  exp_rep_mdl=glmer(scaleRT ~ exp_rep + resp_big_small + (1 | subID),data = Bmem_data,family = inverse.gaussian(link = 'identity'))
+  print(sprintf("%s: initial learning: only Bmem, repetition:",exp_label[curr_exp]))
+  print(anova(null_mdl,exp_rep_mdl))
+  
+  #interaction of AB item by repetition:
+  ABandRep_mdl=glmer(scaleRT ~ exp_rep + fac_AB + resp_big_small + (1 | subID),data = Bmem_data,family = inverse.gaussian(link = 'identity'))
+  
+  ABbyRep_mdl=glmer(scaleRT ~ exp_rep*fac_AB + resp_big_small + (1 | subID),data = Bmem_data,family = inverse.gaussian(link = 'identity'))
+  print(sprintf("%s: initial learning: only Bmem, AB items by repetition:",exp_label[curr_exp]))
+  print(anova(ABandRep_mdl,ABbyRep_mdl))
+  curr_AIC <- AIC(ABandRep_mdl,ABbyRep_mdl)
+  print(sprintf("AIC diff: %.0f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+  print("")
+  #### now only taking forgotten B items - to show weaker interaction
+  Bmem_data <- filter(curr_data,curr_data$Bmemory == 0)
+  
+  #interaction of AB item by repetition:
+  ABandRep_mdl=glmer(scaleRT ~ exp_rep + fac_AB + resp_big_small + (1 | subID),data = Bmem_data,family = inverse.gaussian(link = 'identity'))
+  
+  ABbyRep_mdl=glmer(scaleRT ~ exp_rep*fac_AB + resp_big_small + (1 | subID),data = Bmem_data,family = inverse.gaussian(link = 'identity'))
+  print(sprintf("%s: initial learning: only Bmem, AB items by repetition:",exp_label[curr_exp]))
+  print(anova(ABandRep_mdl,ABbyRep_mdl))
+  curr_AIC <- AIC(ABandRep_mdl,ABbyRep_mdl)
+  print(sprintf("AIC diff: %.0f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+  print("")
+#  }
+  
+}
+
+```
+
+### plot initial learning data
+```{r plot initial data}
+#set up some things for the graph
+labels_exp <- c(
+  "1" = "Experiment 1",
+  "2" = "Experiment 2",
+  "3" = "Experiment 3"
+)
+
+labels_bmem <- c(
+  "0" = "Bforgotten",
+  "1" = "Bremembered"
+)
+
+all_spectral<-brewer.pal(9,"Blues")
+myspec <-all_spectral[c(4,7)]
+
+#set up the data:
+all_exp_data = init_learning_data[FALSE,]
+for (curr_exp in 1:3) {
+  
+  #choose current experiment:
+  curr_data <- filter(init_learning_data,init_learning_data$Exp == curr_exp)
+  #clean up:
+  curr_data<- filter(curr_data,!(is.na(curr_data$RTs)))
+  curr_data<- curr_data %>%
+  mutate(fac_AB = factor(loc_in_pair)) %>%  
+  mutate(allA_accurate = ifelse(loc_in_pair == 1 | resp_acc == 1, 1,0))
+  #take only accurate responses:
+  #for Exp 1 and 2, use the allA_accurate - to ignore accuracy for A items (first items in the pairs).
+  #for Exp3, take only accurate A items, since the response was per item.
+  if (curr_exp < 3) {
+    curr_data=curr_data[curr_data$allA_accurate == 1,] 
+  } else {
+    curr_data=curr_data[curr_data$resp_acc == 1,] 
+  }
+  
+  #the previous one might still leave some resp_big_small as nan, if participants pressed another key. We don't want to analyze these (not much, as we don't know what happened in them)
+  curr_data=curr_data[!is.na(curr_data$resp_big_small),]
+  
+all_exp_data <- bind_rows(all_exp_data,curr_data)
+  
+}
+#geom_violin(data = all_exp_data,trim=FALSE, alpha=0.4,color = NA,aes(fill = loc_in_pair),position = "dodge")
+#position_dodge(width = .9)
+
+curr_p <- ggplot(all_exp_data,aes(x = factor(repetition), y=RTs,color=fac_AB)) +
+  stat_summary(data = all_exp_data,fun.data = mean_ci, geom = "pointrange",aes(color=fac_AB),size=1) + 
+  stat_summary(data = all_exp_data,fun.y = mean,aes(x = factor(repetition), y=RTs,group=fac_AB),geom = "line",size=1) + 
+  scale_color_manual(values = myspec,
+                       name="Item in pair",
+                       breaks=c("1", "2"),
+                       labels=c("first","second")) +
+  facet_wrap(~Exp,labeller = labeller(Exp = labels_exp),scales = "free") +
+  labs(x = 'Repetition', y = 'RT(ms)', title = 'RTs initial learning') +
+  theme_all_exp +
+  theme(legend.position = c(0.91, 0.85),
+        legend.background = element_rect(fill = all_spectral[1]))
+
+## THIS IS CURRENTLY IN THE SUPP:
+Brem_all_exp_data <- filter(all_exp_data,all_exp_data$Bmemory==1)
+Bforg_all_exp_data <- filter(all_exp_data,all_exp_data$Bmemory==0)
+
+
+Bmem_alpha_p <- ggplot(all_exp_data,aes(x = factor(repetition), y=RTs,color=fac_AB)) +
+  stat_summary(data = Brem_all_exp_data,fun.data = mean_se_, geom = "pointrange",aes(color=fac_AB),size=1) + 
+  stat_summary(data = Brem_all_exp_data,fun.y = mean,aes(x = factor(repetition), y=RTs,group=fac_AB),geom = "line",size=1) + 
+  
+  stat_summary(data = Bforg_all_exp_data,fun.data = mean_se_, geom = "pointrange",aes(color=fac_AB,alpha = .6),size=1) + 
+  stat_summary(data = Bforg_all_exp_data,fun.y = mean,aes(x = factor(repetition), y=RTs,group=fac_AB,alpha =.6),geom = "line",size=1) + 
+  
+  scale_color_manual(values = myspec,
+                       name="Item in pair",
+                       breaks=c("1", "2"),
+                       labels=c("first","second")) +
+  facet_grid(~Exp,labeller = labeller(Exp = labels_exp),scales = "free") +
+  labs(x = 'Repetition', y = 'RT(ms)', title = 'RTs initial learning') +
+  theme_all_exp +
+  theme(legend.position = c(0.91, 0.80),
+        legend.background = element_rect(fill = all_spectral[1]))
+
+
+
+
+Bmem_facet_p <- ggplot(all_exp_data,aes(x = factor(repetition), y=RTs,color=fac_AB)) +
+  stat_summary(data = all_exp_data,fun.data = mean_ci, geom = "pointrange",aes(color=fac_AB),size=1) + 
+  stat_summary(data = all_exp_data,fun.y = mean,aes(x = factor(repetition), y=RTs,group=fac_AB),geom = "line",size=1) + 
+  scale_color_manual(values = myspec,
+                       name="Item in pair",
+                       breaks=c("1", "2"),
+                       labels=c("first","second")) +
+  facet_grid(Bmemory~Exp,labeller = labeller(Bmemory = labels_bmem, Exp = labels_exp),scales = "free") +
+  labs(x = 'Repetition', y = 'RT(ms)', title = 'RTs initial learning') +
+  theme_all_exp +
+  theme(legend.position = c(0.91, 0.85),
+        legend.background = element_rect(fill = all_spectral[1]))
+   
+```
+
+## analyse reminder - gLMM
+```{r analyse reminder - gLMM}
+#conditions:
+#1-v 2-nv
+#analysis per experiment:
+exp_label=c('Exp1: simPEL9','Exp2: simPEL11_ass','Exp3: simPEL11_item')
+for (curr_exp in 1:3) {
+  print(sprintf("**********%s: reminder**********",exp_label[curr_exp]))
+  #choose current experiment:
+  curr_data <- filter(reminder_data,reminder_data$Exp == curr_exp)
+  #clean up:
+  curr_data<- filter(curr_data,!(is.na(curr_data$RTs)))
+  curr_data<- curr_data %>%
+  mutate(fac_cond = factor(condition)) %>%
+  mutate(subID = factor(subID)) %>%
+  mutate(fac_AB = factor(loc_in_pair)) %>%
+  mutate(scaleRT = scale(RTs, center = FALSE)) %>%
+  mutate(allA_accurate = ifelse(loc_in_pair == 1 | resp_acc == 1, 1,0))
+  #take only accurate responses:
+  #for Exp 1 and 2, use the allA_accurate - to ignore accuracy for A items (first items in the pairs).
+  #for Exp3, take only accurate A items, since the response was per item.
+  if (curr_exp < 3) {
+    curr_data=curr_data[curr_data$allA_accurate == 1,] 
+  } else {
+    curr_data=curr_data[curr_data$resp_acc == 1,] 
+  }
+  #the previous one might still leave some resp_big_small as nan, if participants pressed another key. We don't want to analyze these (not much, as we don't know what happened in them)
+  curr_data=curr_data[!is.na(curr_data$resp_big_small),]
+  #participants numbers:
+  n=as.numeric(length(unique(curr_data$subject)))
+  
+  #model:
+  null_mdl=glmer(scaleRT ~ (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  resp_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  print(sprintf("%s: reminder: big/small response:",exp_label[curr_exp]))
+  print(anova(null_mdl,resp_mdl))
+  
+  #in Exp1, response explains variance, so add it
+  null_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  #item type (1/2):
+  AB_mdl=glmer(scaleRT ~ fac_AB + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  print(sprintf("%s: reminder: main effect of first/second item:",exp_label[curr_exp]))
+  print(anova(null_mdl,AB_mdl))
+  curr_AIC <- AIC(null_mdl,AB_mdl)
+  print(sprintf("AIC diff: %.0f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+  print("")
+  
+  #test the effects of condition: shouldn't be any:
+  cond_mdl=glmer(scaleRT ~ fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  print(sprintf("%s: reminder: condition:",exp_label[curr_exp]))
+  print(anova(null_mdl,cond_mdl))
+  
+  cond_and_AB_mdl=glmer(scaleRT ~ fac_cond + fac_AB + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  cond_by_AB_mdl=glmer(scaleRT ~ fac_cond*fac_AB + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  print(sprintf("%s: reminder: condition by AB items:",exp_label[curr_exp]))
+  print(anova(cond_and_AB_mdl,cond_by_AB_mdl))
+  
+  # effect of Bmemory
+  Bmem_mdl=glmer(scaleRT ~ Bmemory + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+    print(sprintf("%s: reminder: main effect of Bmemory:",exp_label[curr_exp]))
+    print(anova(null_mdl,Bmem_mdl))   
+    curr_AIC <- AIC(null_mdl,Bmem_mdl)
+  print(sprintf("AIC diff: %.0f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+  print("")
+   
+  
+  #interaction of Bmem by repetition by item:
+  BmemAndItem_mdl=glmer(scaleRT ~ Bmemory + fac_AB + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+  
+   BmemByItem_mdl=glmer(scaleRT ~ Bmemory*fac_AB + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+   print(sprintf("%s: reminder: Bmemory by Item:",exp_label[curr_exp]))
+    print(anova(BmemAndItem_mdl,BmemByItem_mdl))   
+  curr_AIC <- AIC(BmemAndItem_mdl,BmemByItem_mdl)
+  print(sprintf("AIC diff: %.0f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+  print("")
+}
+
+# some plotting:
+curr_data <- filter(reminder_data,!is.na(reminder_data$RTs)) %>%
+  mutate(cond_name = if_else(condition == 1, 'violation','no-violation'))
+
+reminder_data_by_subj <- curr_data %>%
+  group_by(Exp,subID,cond_name,loc_in_pair,Bmemory) %>%
+  summarise(RT = mean(RTs))
+
+all_spectral<-brewer.pal(9,"Set1")
+myspec <-all_spectral[c(4,5)]
+labels_exp <- c(
+  "1" = "Exp1",
+  "2" = "Exp2",
+  "3" = "Exp3"
+)
+
+labels_Bmem <- c(
+  "0" = "B forgotten",
+  "1" = "B remembered"
+)
+
+curr_p <- ggplot(reminder_data_by_subj, aes(x=loc_in_pair, y=RT, color = cond_name,fill = cond_name)) +
+          geom_bar(position = "dodge",stat="summary", fun = "mean") +
+          scale_color_manual(values = myspec) +
+          scale_fill_manual(values = myspec) +
+          labs(x = "A or B items", y = "RT", title = "reminder RT by AB memory and violation") +
+          facet_grid(Exp~Bmemory,labeller = labeller(Bmemory = labels_Bmem, Exp = labels_exp)) + #facet_grid(exp~type)
+          coord_cartesian(ylim =c(550,850)) +
+          theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+```
+
+## analyse error block - gLMM
+```{r analyse error block - gLMM}
+#the conditions 1-6 are:
+#conditions:
+#1-v 2-nv
+#3-v violation 4-nv no violation (only in the error block)
+#5-violation items
+#6-no violation items
+
+exp_label=c('Exp1: simPEL9','Exp2: simPEL11_ass','Exp3: simPEL11_item')
+###### each experiment alone:
+for (curr_exp in 1:3) {
+  print(sprintf("**********%s: error block**********",exp_label[curr_exp]))
+  #choose current experiment:
+  curr_data <- filter(er_block_data,er_block_data$Exp == curr_exp)
+  #clean up:
+  curr_data<- filter(curr_data,!(is.na(curr_data$RTs)))
+  curr_data<- curr_data %>%
+  mutate(fac_cond = factor(condition)) %>%
+  mutate(fac_exp = factor(Exp)) %>%
+  mutate(subID = factor(subID)) %>%
+  mutate(fac_AB = factor(loc_in_pair)) %>%
+  mutate(scaleRT = scale(RTs, center = FALSE)) %>%
+  mutate(allA_accurate = ifelse(loc_in_pair == 1 | resp_acc == 1, 1,0))
+  #take only accurate responses:
+  #for Exp 1 and 2, use the allA_accurate - to ignore accuracy for A items (first items in the pairs).
+  #for Exp3, take only accurate A items, since the response was per item.
+  if (curr_exp < 3) {
+    curr_data=curr_data[curr_data$allA_accurate == 1,] 
+  } else {
+    curr_data=curr_data[curr_data$resp_acc == 1,] 
+  }
+  #the previous one might still leave some resp_big_small as nan, if participants pressed another key. We don't want to analyze these (not much, as we don't know what happened in them)
+  curr_data=curr_data[!is.na(curr_data$resp_big_small),]
+  #participants numbers:
+  n=as.numeric(length(unique(curr_data$subject)))
+  
+  ##### analyse violation and no violation items:
+#take only novel items
+curr_data=curr_data[curr_data$condition >= 5,]
+
+##### analyse violation and no violation items, regardless of memory of the previous pair
+
+##model:
+null_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+
+cond_mdl=glmer(scaleRT ~ fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("%s violation block: main effect of violation",exp_label[curr_exp]))
+print(anova(null_mdl,cond_mdl))
+
+#interaction of cond by AB memory:
+cond_and_mem_mdl=glmer(scaleRT ~ fac_cond + Bmemory + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+cond_by_mem_mdl=glmer(scaleRT ~ fac_cond*Bmemory + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("%s violation block: violation by Bmemory",exp_label[curr_exp]))
+print(anova(cond_and_mem_mdl,cond_by_mem_mdl)) 
+
+
+#take only prev pair remembered:
+Bmem_data=curr_data[curr_data$Bmemory == 1,]
+
+null_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = Bmem_data,family = inverse.gaussian(link = 'identity'))
+#conditions
+cond_mdl=glmer(scaleRT ~ fac_cond + resp_big_small + (1 | subID),data = Bmem_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("%s violation block: ONLY B REMEMBERD: main effect of violation",exp_label[curr_exp]))
+print(anova(null_mdl,cond_mdl))
+
+#take only prev pair forgotten:
+Bmem_data=curr_data[curr_data$Bmemory == 0,]
+
+null_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = Bmem_data,family = inverse.gaussian(link = 'identity'))
+#conditions
+cond_mdl=glmer(scaleRT ~ fac_cond + resp_big_small + (1 | subID),data = Bmem_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("%s violation block: ONLY B FORGOTTEN: main effect of violation",exp_label[curr_exp]))
+print(anova(null_mdl,cond_mdl))
+
+} #ends the experiment loop
+
+##### ALL THREE STUDIES ########  
+print(sprintf("**********: error block, ALL EXPERIMENTS **********"))
+#get the data:
+all_exp_data = er_block_data[FALSE,]
+for (curr_exp in 1:3) {
+  
+  #choose current experiment:
+  curr_data <- filter(er_block_data,er_block_data$Exp == curr_exp)
+  #clean up:
+  curr_data<- filter(curr_data,!(is.na(curr_data$RTs)))
+  curr_data<- curr_data %>%
+  mutate(fac_cond = factor(condition)) %>%
+  mutate(fac_exp = factor(Exp)) %>%
+  mutate(subID = factor(subID)) %>%
+  mutate(fac_AB = factor(loc_in_pair)) %>%
+  mutate(scaleRT = scale(RTs, center = FALSE)) %>%
+  mutate(allA_accurate = ifelse(loc_in_pair == 1 | resp_acc == 1, 1,0))
+  #take only accurate responses:
+  #for Exp 1 and 2, use the allA_accurate - to ignore accuracy for A items (first items in the pairs).
+  #for Exp3, take only accurate A items, since the response was per item.
+  if (curr_exp < 3) {
+    curr_data=curr_data[curr_data$allA_accurate == 1,] 
+  } else {
+    curr_data=curr_data[curr_data$resp_acc == 1,] 
+  }
+  
+  #the previous one might still leave some resp_big_small as nan, if participants pressed another key. We don't want to analyze these (not much, as we don't know what happened in them)
+  curr_data=curr_data[!is.na(curr_data$resp_big_small),]
+  #take only novel items
+  curr_data=curr_data[curr_data$condition >= 5,]
+  
+  all_exp_data <- bind_rows(all_exp_data,curr_data)
+  
+}
+
+curr_data <- all_exp_data
+
+##### model:
+null_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+
+cond_mdl=glmer(scaleRT ~ fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: main effect of violation, ALL Experiments:"))
+print(anova(null_mdl,cond_mdl))
+
+##effect of experiment:
+exp_mdl = glmer(scaleRT ~ fac_exp + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: main effect of Experiment (1/2/3):"))
+print(anova(null_mdl,exp_mdl))
+
+##interaction of experiment by condition:
+exp_and_cond_mdl = glmer(scaleRT ~ fac_exp + fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+exp_by_cond_mdl = glmer(scaleRT ~ fac_exp*fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: Experiment (1/2/3) by condition:"))
+anova(exp_and_cond_mdl,exp_by_cond_mdl)
+
+
+#interaction of cond by AB memory:
+cond_and_mem_mdl=glmer(scaleRT ~ fac_cond + Bmemory + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+cond_by_mem_mdl=glmer(scaleRT ~ fac_cond*Bmemory + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: ALL Experiments (1/2/3), AB memory by condition:"))
+print(anova(cond_and_mem_mdl,cond_by_mem_mdl)) 
+
+
+#take only prev pair remembered:
+curr_data=curr_data[curr_data$Bmemory == 1,]
+##model:
+null_mdl=glmer(scaleRT ~ (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+resp_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+anova(null_mdl,resp_mdl)
+
+null_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+#conditions
+cond_mdl=glmer(scaleRT ~ fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("ALL EXPERIMENTS: violation block: only Brem: main effect of violation:"))
+print(anova(null_mdl,cond_mdl))
+
+##effect of experiment:
+exp_mdl = glmer(scaleRT ~ fac_exp + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("ALL EXPERIMENTS: violation block: only Brem: main effect of Experiment (1/2/3):"))
+print(anova(null_mdl,exp_mdl))
+
+##interaction of experiment by condition:
+exp_and_cond_mdl = glmer(scaleRT ~ fac_exp + fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+exp_by_cond_mdl = glmer(scaleRT ~ fac_exp*fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("ALL EXPERIMENTS: violation block: only Brem: Experiment (1/2/3) by condition:"))
+anova(exp_and_cond_mdl,exp_by_cond_mdl)
+
+
+
+##### compare Exp2 and 3, without experiment 2:
+print(sprintf("**********: ERROR BLOCK, EXPERIMENTS 2 vs. 3 **********"))
+#choose current experiment:
+curr_data <- filter(er_block_data,er_block_data$Exp > 1)
+#clean up:
+curr_data<- filter(curr_data,!(is.na(curr_data$RTs)))
+curr_data<- curr_data %>%
+mutate(fac_cond = factor(condition)) %>%
+mutate(fac_exp = factor(Exp)) %>%
+mutate(subID = factor(subID)) %>%
+mutate(fac_AB = factor(loc_in_pair)) %>%
+mutate(scaleRT = scale(RTs, center = FALSE)) %>%
+mutate(allA_accurate = ifelse(loc_in_pair == 1 | resp_acc == 1, 1,0))
+#take only accurate responses:
+#for Exp 1 and 2, use the allA_accurate - to ignore accuracy for A items (first items in the pairs).
+#for Exp3, take only accurate A items, since the response was per item.
+if (curr_exp < 3) {
+  curr_data=curr_data[curr_data$allA_accurate == 1,] 
+} else {
+  curr_data=curr_data[curr_data$resp_acc == 1,] 
+}
+#the previous one might still leave some resp_big_small as nan, if participants pressed another key. We don't want to analyze these (not much, as we don't know what happened in them)
+curr_data=curr_data[!is.na(curr_data$resp_big_small),]
+#participants numbers:
+n=as.numeric(length(unique(curr_data$subject)))
+
+
+##### analyse violation and no violation items:
+#take only novel items
+curr_data=curr_data[curr_data$condition >= 5,]
+
+##### analyse violation and no violation items, regardless of memory of the previous pair
+
+##model:
+null_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+
+cond_mdl=glmer(scaleRT ~ fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: main effect of violation, both Experiments:"))
+print(anova(null_mdl,cond_mdl))
+
+##effect of experiment:
+exp_mdl = glmer(scaleRT ~ fac_exp + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: main effect of Experiment (2/3):"))
+print(anova(null_mdl,exp_mdl))
+
+##interaction of experiment by condition:
+exp_and_cond_mdl = glmer(scaleRT ~ fac_exp + fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+exp_by_cond_mdl = glmer(scaleRT ~ fac_exp*fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: Experiment (2/3) by condition:"))
+anova(exp_and_cond_mdl,exp_by_cond_mdl)
+
+
+#interaction of cond by AB memory:
+cond_and_mem_mdl=glmer(scaleRT ~ fac_cond + Bmemory + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+cond_by_mem_mdl=glmer(scaleRT ~ fac_cond*Bmemory + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+anova(cond_and_mem_mdl,cond_by_mem_mdl) #no interaction - which allows me to not separate.
+
+
+#take only prev pair remembered:
+curr_data=curr_data[curr_data$Bmemory == 1,]
+##model:
+null_mdl=glmer(scaleRT ~ (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+resp_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+anova(null_mdl,resp_mdl)
+
+null_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+#conditions
+cond_mdl=glmer(scaleRT ~ fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: only Brem: main effect of violation:"))
+print(anova(null_mdl,cond_mdl))
+
+##effect of experiment:
+exp_mdl = glmer(scaleRT ~ fac_exp + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: only Brem: main effect of Experiment (1/2):"))
+print(anova(null_mdl,exp_mdl))
+
+##interaction of experiment by condition:
+exp_and_cond_mdl = glmer(scaleRT ~ fac_exp + fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+exp_by_cond_mdl = glmer(scaleRT ~ fac_exp*fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: only Brem: Experiment (2/3) by condition:"))
+anova(exp_and_cond_mdl,exp_by_cond_mdl)
+
+
+
+
+##### Exp1 and 2, without experiment 3:
+print(sprintf("**********: error block Exp 1,2 **********"))
+#choose current experiment:
+curr_data <- filter(er_block_data,er_block_data$Exp < 3)
+#clean up:
+curr_data<- filter(curr_data,!(is.na(curr_data$RTs)))
+curr_data<- curr_data %>%
+mutate(fac_cond = factor(condition)) %>%
+mutate(fac_exp = factor(Exp)) %>%
+mutate(subID = factor(subID)) %>%
+mutate(fac_AB = factor(loc_in_pair)) %>%
+mutate(scaleRT = scale(RTs, center = FALSE)) %>%
+mutate(allA_accurate = ifelse(loc_in_pair == 1 | resp_acc == 1, 1,0))
+#take only accurate responses:
+#for Exp 1 and 2, use the allA_accurate - to ignore accuracy for A items (first items in the pairs).
+#for Exp3, take only accurate A items, since the response was per item.
+if (curr_exp < 3) {
+  curr_data=curr_data[curr_data$allA_accurate == 1,] 
+} else {
+  curr_data=curr_data[curr_data$resp_acc == 1,] 
+}
+#the previous one might still leave some resp_big_small as nan, if participants pressed another key. We don't want to analyze these (not much, as we don't know what happened in them)
+curr_data=curr_data[!is.na(curr_data$resp_big_small),]
+#participants numbers:
+n=as.numeric(length(unique(curr_data$subject)))
+
+
+##### analyse violation and no violation items:
+#take only novel items
+curr_data=curr_data[curr_data$condition >= 5,]
+
+##### analyse violation and no violation items, regardless of memory of the previous pair
+
+##model:
+null_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+
+cond_mdl=glmer(scaleRT ~ fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: main effect of violation, both Experiments:"))
+print(anova(null_mdl,cond_mdl))
+
+##effect of experiment:
+exp_mdl = glmer(scaleRT ~ fac_exp + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: main effect of Experiment (1/2):"))
+print(anova(null_mdl,exp_mdl))
+
+##interaction of experiment by condition:
+exp_and_cond_mdl = glmer(scaleRT ~ fac_exp + fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+exp_by_cond_mdl = glmer(scaleRT ~ fac_exp*fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: Experiment (1/2) by condition:"))
+anova(exp_and_cond_mdl,exp_by_cond_mdl)
+
+
+#interaction of cond by AB memory:
+cond_and_mem_mdl=glmer(scaleRT ~ fac_cond + Bmemory + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+cond_by_mem_mdl=glmer(scaleRT ~ fac_cond*Bmemory + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+anova(cond_and_mem_mdl,cond_by_mem_mdl) #no interaction - which allows me to not separate.
+
+
+#take only prev pair remembered:
+curr_data=curr_data[curr_data$Bmemory == 1,]
+##model:
+null_mdl=glmer(scaleRT ~ (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+resp_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+anova(null_mdl,resp_mdl)
+
+null_mdl=glmer(scaleRT ~ resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+#conditions
+cond_mdl=glmer(scaleRT ~ fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: only Brem: main effect of violation:"))
+print(anova(null_mdl,cond_mdl))
+
+##effect of experiment:
+exp_mdl = glmer(scaleRT ~ fac_exp + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: only Brem: main effect of Experiment (1/2):"))
+print(anova(null_mdl,exp_mdl))
+
+##interaction of experiment by condition:
+exp_and_cond_mdl = glmer(scaleRT ~ fac_exp + fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+exp_by_cond_mdl = glmer(scaleRT ~ fac_exp*fac_cond + resp_big_small + (1 | subID),data = curr_data,family = inverse.gaussian(link = 'identity'))
+print(sprintf("violation block: only Brem: Experiment (1/2) by condition:"))
+anova(exp_and_cond_mdl,exp_by_cond_mdl)
+
+
+#analyse the predictive pairs (cond 1,2):
+# some plotting:
+curr_data <- filter(er_block_data,(!is.na(er_block_data$RTs) & er_block_data$condition < 3)) %>%
+  mutate(cond_name = if_else(condition == 1, 'violation','no-violation'))
+
+er_data_by_subj <- curr_data %>%
+  group_by(Exp,subID,cond_name,loc_in_pair,Bmemory) %>%
+  summarise(RT = mean(RTs))
+
+all_spectral<-brewer.pal(9,"Set1")
+myspec <-all_spectral[c(4,5)]
+labels_exp <- c(
+  "1" = "Exp1",
+  "2" = "Exp2",
+  "3" = "Exp3"
+)
+
+labels_Bmem <- c(
+  "0" = "B forgotten",
+  "1" = "B remembered"
+)
+
+curr_p <- ggplot(er_data_by_subj, aes(x=loc_in_pair, y=RT, color = cond_name,fill = cond_name)) +
+          geom_bar(position = "dodge",stat="summary", fun = "mean") +
+          scale_color_manual(values = myspec) +
+          scale_fill_manual(values = myspec) +
+          labs(x = "A or B items", y = "RT", title = "erorr block (reminder trials) RT by AB memory and violation") +
+          facet_grid(Exp~Bmemory,labeller = labeller(Bmemory = labels_Bmem, Exp = labels_exp)) + #facet_grid(exp~type)
+          coord_cartesian(ylim =c(550,850)) +
+          theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+
+```
+#### plot error block data
+```{r plot error block data}
+#set up some things for the graph
+labels_exp <- c(
+  "1" = "Experiment 1",
+  "2" = "Experiment 2",
+  "3" = "Experiment 3"
+)
+
+labels_bmem <- c(
+  "0" = "Bforgotten",
+  "1" = "Bremembered"
+)
+
+all_spectral<-brewer.pal(9,"Set1")
+myspec <-all_spectral[c(5,4)]
+
+#set up the data:
+all_exp_data = er_block_data[FALSE,]
+for (curr_exp in 1:3) {
+  
+  #choose current experiment:
+  curr_data <- filter(er_block_data,er_block_data$Exp == curr_exp)
+  #clean up:
+  curr_data<- filter(curr_data,!(is.na(curr_data$RTs)))
+  curr_data<- curr_data %>%
+  mutate(fac_AB = factor(loc_in_pair)) %>% 
+  mutate(fac_cond = factor(condition)) %>%
+  mutate(allA_accurate = ifelse(loc_in_pair == 1 | resp_acc == 1, 1,0))
+  #take only accurate responses:
+  #for Exp 1 and 2, use the allA_accurate - to ignore accuracy for A items (first items in the pairs).
+  #for Exp3, take only accurate A items, since the response was per item.
+  if (curr_exp < 3) {
+    curr_data=curr_data[curr_data$allA_accurate == 1,] 
+  } else {
+    curr_data=curr_data[curr_data$resp_acc == 1,] 
+  }
+  
+  #the previous one might still leave some resp_big_small as nan, if participants pressed another key. We don't want to analyze these (not much, as we don't know what happened in them)
+  curr_data=curr_data[!is.na(curr_data$resp_big_small),]
+  #take only novel items
+  curr_data=curr_data[curr_data$condition >= 5,]
+  
+  all_exp_data <- bind_rows(all_exp_data,curr_data)
+}
+
+## regardless of memory:
+curr_p <- ggplot(all_exp_data,aes(x = fac_cond, y=RTs,color=fac_cond)) +
+  stat_summary(data = all_exp_data,fun.data = mean_se_, geom = "pointrange",aes(color=fac_cond),size=1) + 
+  scale_color_manual(values = myspec,
+                       name=NULL,
+                       breaks=c("5", "6"),
+                       labels=c("violation","no-violation")) +
+  facet_wrap(~Exp,labeller = labeller(Exp = labels_exp),scales = "free") +
+  labs(x = NULL, y = 'RT(ms)', title = 'RTs violation phase') +
+  theme_all_exp
+  
+#theme(legend.position = c(0.91, 0.85))
+#geom_violin(data = all_exp_data,trim=FALSE, alpha=0.4,color = NA,aes(fill = loc_in_pair),position = "dodge")
+#position_dodge(width = .9)
+
+#geom_violin(data = curr_exp_data,trim=FALSE) +
+#only Brem:
+curr_exp_data=all_exp_data[all_exp_data$Bmemory == 1,]
+curr_p <- ggplot(curr_exp_data,aes(x = fac_cond, y=RTs,color=fac_cond)) +
+  stat_summary(data = curr_exp_data,fun.data = mean_se_, geom = "pointrange",aes(color=fac_cond),size=1) + 
+  scale_color_manual(values = myspec,
+                       name=NULL,
+                       breaks=c("5", "6"),
+                       labels=c("violation","no-violation")) +
+  facet_wrap(~Exp,labeller = labeller(Exp = labels_exp),scales = "free") +
+  labs(x = NULL, y = 'RT(ms)', title = 'RTs violation phase (only Brem)') +
+  theme_all_exp #+
+  #theme(legend.position = c(0.91, 0.85))
+
+#only Bforg:
+curr_exp_data=all_exp_data[all_exp_data$Bmemory == 0,]
+curr_p <- ggplot(curr_exp_data,aes(x = fac_cond, y=RTs,color=fac_cond)) +
+  stat_summary(data = curr_exp_data,fun.data = mean_se_, geom = "pointrange",aes(color=fac_cond),size=1) + 
+  scale_color_manual(values = myspec,
+                       name=NULL,
+                       breaks=c("5", "6"),
+                       labels=c("violation","no-violation")) +
+  facet_wrap(~Exp,labeller = labeller(Exp = labels_exp),scales = "free") +
+  labs(x = NULL, y = 'RT(ms)', title = 'RTs violation phase (only Bforg)') +
+  theme_all_exp # +
+  #theme(legend.position = c(0.91, 0.85))
+
+
+#legend.background = element_rect(fill = all_spectral[1])
+
+```
+# analyse recognition test
+### load data and summary stats
+```{r analyse recognition test}
+#Sept 2020: all of the analyses reported in the paper are using the matlab code. I used this to collapse across studies (eventually excluded from ms per reviewer's request) - . But, since I have the data, I thought to just check for
+#assumptions of ANOVA
+
+results_dir <- paste(proj_dir,"simPEL11_onlyConsSameSimilarItemTask/analysis/files_forR",sep="/")
+setwd(results_dir)
+
+#simPEL9 Associative task (Experiemnt 1): load all data:
+all_exp_data <- read.table(paste(results_dir, "simPEL9_11_recognition.txt",sep="/"),header = TRUE,sep = "\t",dec = ".")
+all_exp_data <- all_exp_data  %>%
+  mutate(Experiment = factor(Experiment),
+         subID = factor(subject),
+         resp_name = ifelse(response == 2,'old',ifelse(response == 1,'sim','new')),
+         viol_name = ifelse(viol == 1,'violation','no-violation'),
+         ret_trial_name = ifelse(ret_trial_type == 1,'identical-old','similar-lure'))
+
+
+Exp1_data <- filter(all_exp_data,all_exp_data$Experiment == 1)
+Exp2_data <- filter(all_exp_data,all_exp_data$Experiment == 2)
+
+#get summary stats:
+all_exp_data %>%
+  group_by(Experiment,Bmemory,viol_name,ret_trial_name,resp_name) %>%
+  get_summary_stats(rates, type = "mean_sd")
+
+```
+
+### stats
+```{r stats}
+#in the main paper, I analyse the ANOVA of old items: v/nv by old/similar responses. check assumptions
+curr_data <- Exp2_data
+behav_data <- filter(curr_data,curr_data$Bmemory == 1 & curr_data$ret_trial_type == 1 & curr_data$response != 0)
+
+
+#check assumptions:
+bxp <- ggboxplot(
+  behav_data, x = "viol", y = "rates",
+  color = "response", palette = "jco"
+  )
+bxp
+
+#outliers
+behav_data %>%
+  group_by(viol, response) %>%
+  identify_outliers(rates)
+
+#normality
+behav_data %>%
+  group_by(viol, response) %>%
+  shapiro_test(rates)
+
+#qq plot
+ggqqplot(behav_data, "rates", ggtheme = theme_bw()) +
+  facet_grid(viol ~ response, labeller = "label_both")
+
+#that's with the rstatix package - correct for violation of sphericity
+# res.aov <- anova_test(
+#   data = behav_data, dv = rates, wid = subID,
+#   within = c(viol, response),
+#   detailed = TRUE
+#   )
+# get_anova_table(res.aov, correction = "GG")
+
+
+## compute ANOVA for old responses viol/no-viol, across both experiments:
+curr_data <- all_exp_data
+behav_data <- filter(curr_data,curr_data$Bmemory == 1 & curr_data$response == 2)
+
+res.aov <- aov(rates ~ Experiment*viol*ret_trial_type + Error(subID/(viol*ret_trial_type)), data = behav_data)
+print(anova_summary(res.aov, detailed = TRUE, effect.size = "pes"))
+# print(summary(res.aov))
+# eta_sq(res.aov, partial = TRUE)
+
+##in each experiment, the same interaction and t-test:
+## EXPERIMENT 1
+curr_data <- Exp1_data
+behav_data <- filter(curr_data,curr_data$Bmemory == 1 & curr_data$response == 2)
+
+res.aov <- aov(rates ~ viol*ret_trial_type + Error(subID/(viol*ret_trial_type)), data = behav_data)
+print(anova_summary(res.aov, detailed = TRUE, effect.size = "pes"))
+
+#ttest 'old' responses for old items - violation  vs. no-violation
+data_wide <- dcast(behav_data, subID ~ viol_name + ret_trial_name,value.var="rates")
+t.test(data_wide$`no-violation_identical-old`,data_wide$`violation_identical-old`,paired=TRUE)
+diff <- data_wide$`no-violation_identical-old` - data_wide$`violation_identical-old`
+CohenD = mean(diff) / sd(diff)
+print(sprintf('CohenD is: %.2f',CohenD))
+
+
+#ttest 'old' responses for similar lures - violation  vs. no-violation
+data_wide <- dcast(behav_data, subID ~ viol_name + ret_trial_name,value.var="rates")
+t.test(data_wide$`no-violation_similar-lure`,data_wide$`violation_similar-lure`,paired=TRUE)
+diff <- data_wide$`no-violation_similar-lure` - data_wide$`violation_similar-lure`
+CohenD = mean(diff) / sd(diff)
+print(sprintf('CohenD is: %.2f',CohenD))
+
+#ttest 'sim' responses for similar lures - violation  vs. no-violation
+behav_data <- filter(curr_data,curr_data$Bmemory == 1 & curr_data$response == 1)
+data_wide <- dcast(behav_data, subID ~ viol_name + ret_trial_name,value.var="rates")
+t.test(data_wide$`no-violation_similar-lure`,data_wide$`violation_similar-lure`,paired=TRUE)
+diff <- data_wide$`no-violation_similar-lure` - data_wide$`violation_similar-lure`
+CohenD = mean(diff) / sd(diff)
+print(sprintf('CohenD is: %.2f',CohenD))
+
+## EXPERIMENT 2
+curr_data <- Exp2_data
+behav_data <- filter(curr_data,curr_data$Bmemory == 1 & curr_data$response == 2)
+res.aov <- aov(rates ~ viol*ret_trial_type + Error(subID/(viol*ret_trial_type)), data = behav_data)
+print(anova_summary(res.aov, detailed = TRUE, effect.size = "pes"))
+#SSE for 
+
+
+#ttest 'old' responses for similar lures - violation  vs. no-violation
+data_wide <- dcast(behav_data, subID ~ viol_name + ret_trial_name,value.var="rates")
+t.test(data_wide$`no-violation_similar-lure`,data_wide$`violation_similar-lure`,paired=TRUE)
+diff <- data_wide$`no-violation_similar-lure` - data_wide$`violation_similar-lure`
+CohenD = mean(diff) / sd(diff)
+print(sprintf('CohenD is: %.2f',CohenD))
+
+#ttest 'sim' responses for similar lures - violation  vs. no-violation
+behav_data <- filter(curr_data,curr_data$Bmemory == 1 & curr_data$response == 1)
+data_wide <- dcast(behav_data, subID ~ viol_name + ret_trial_name,value.var="rates")
+t.test(data_wide$`no-violation_similar-lure`,data_wide$`violation_similar-lure`,paired=TRUE)
+diff <- data_wide$`no-violation_similar-lure` - data_wide$`violation_similar-lure`
+CohenD = mean(diff) / sd(diff)
+print(sprintf('CohenD is: %.2f',CohenD))
+
+
+## compute ANOVA for similar responses viol/no-viol, across both experiments:
+curr_data <- all_exp_data
+behav_data <- filter(curr_data,curr_data$Bmemory == 1 & curr_data$response == 1)
+
+res.aov <- aov(rates ~ Experiment*viol*ret_trial_type + Error(subID/(viol*ret_trial_type)), data = behav_data)
+print(anova_summary(res.aov, detailed = TRUE, effect.size = "pes"))
+
+##B FORG, similar lures:
+curr_data <- Exp2_data #Exp1_data
+behav_data <- filter(curr_data,curr_data$Bmemory == 0 & curr_data$ret_trial_type == 0 & curr_data$response > 0)
+behav_data <- filter(behav_data,behav_data$subject != 221)
+res.aov <- aov(rates ~ viol*response + Error(subID/(viol*response)), data = behav_data)
+print(anova_summary(res.aov, detailed = TRUE, effect.size = "pes"))
+
+#ttest
+data_wide <- dcast(behav_data, subID ~ viol_name + resp_name,value.var="rates")
+t.test(data_wide$`violation_old`,data_wide$`no-violation_old`,paired=TRUE)
+t.test(data_wide$`violation_sim`,data_wide$`no-violation_sim`,paired=TRUE)
+# diff <- data_wide$`no-violation_similar-lure` - data_wide$`violation_similar-lure`
+# CohenD = mean(diff) / sd(diff)
+# print(sprintf('CohenD is: %.2f',CohenD))
+
+##B FORG, old items:
+curr_data <- Exp2_data #Exp1_data
+behav_data <- filter(curr_data,curr_data$Bmemory == 0 & curr_data$ret_trial_type == 1 & curr_data$response > 0)
+#behav_data <- filter(behav_data,behav_data$subject != 36)
+res.aov <- aov(rates ~ viol*response + Error(subID/(viol*response)), data = behav_data)
+print(anova_summary(res.aov, detailed = TRUE, effect.size = "pes"))
+
+#ttest:
+data_wide <- dcast(behav_data, subID ~ viol_name + resp_name,value.var="rates")
+t.test(data_wide$`violation_old`,data_wide$`no-violation_old`,paired=TRUE)
+t.test(data_wide$`violation_sim`,data_wide$`no-violation_sim`,paired=TRUE)
+
+##B FORG, similar responses:
+curr_data <- Exp2_data #Exp1_data
+behav_data <- filter(curr_data,curr_data$Bmemory == 0 & curr_data$response == 1)
+#behav_data <- filter(behav_data,behav_data$subject != 36)
+#behav_data <- filter(behav_data,behav_data$subject != 221)
+res.aov <- aov(rates ~ viol*ret_trial_type + Error(subID/(viol*ret_trial_type)), data = behav_data)
+print(anova_summary(res.aov, detailed = TRUE, effect.size = "pes"))
+
+
+```
+# analyse rec test by ABmem confidence levels
+### load data
+```{r analyse rec test by ABmem confidence levels}
+## per reviewer's request, not in the analysis eventually
+#### EXP1
+results_dir <- paste(proj_dir,"simPEL9_onlyConsSameSimilarHalf/analysis/files_forR",sep="/")
+setwd(results_dir)
+
+Exp1_data <- read.table(paste(results_dir, "simPEL9_recognition_trials_Bconf.txt",sep="/"),header = TRUE,sep = "\t",dec = ".")
+Exp1_data <- Exp1_data  %>%
+  mutate(subID = factor(subj_idx),
+         resp_name = factor(ifelse(item_mem == 3,'old',ifelse(item_mem == 2,'sim','new'))),
+         cond_name = ifelse(condition == 5,'viol_old',
+                     ifelse(condition == 6,'no_viol_old',
+                     ifelse(condition == 7,'viol_sim',
+                     ifelse(condition == 8,'no_viol_sim','new')))))
+
+#filter subjects:
+#this is the matlab command:
+#good_subj=[2 3 6 8:17 19:20 22 24:26 31:39]; %that is 28 subs as reported in my paper
+good_subj1=c(2,3, 6, 8:17, 19:20, 22, 24:26, 31:39)
+Exp1_data <- filter(Exp1_data,Exp1_data$subj_idx %in% good_subj1)
+
+
+#### EXP2
+results_dir <- paste(proj_dir,"simPEL11_onlyConsSameSimilarItemTask/analysis/files_forR",sep="/")
+setwd(results_dir)
+
+Exp2_data <- read.table(paste(results_dir, "simPEL11_recognition_trials_Bconf.txt",sep="/"),header = TRUE,sep = "\t",dec = ".")
+Exp2_data <- Exp2_data  %>%
+  mutate(subID = factor(subj_idx),
+         resp_name = factor(ifelse(item_mem == 3,'old',ifelse(item_mem == 2,'sim','new'))),
+         cond_name = ifelse(condition == 5,'viol_old',
+                     ifelse(condition == 6,'no_viol_old',
+                     ifelse(condition == 7,'viol_sim',
+                     ifelse(condition == 8,'no_viol_sim','new')))))
+
+#filter subjects:
+#this is the matlab command:
+#good_subj2=[1:2 4:7 9:15 17:21 23:32];%that is 28 subs as reported in my paper
+good_subj2=c(1,2,4:7, 9:15, 17:21, 23:32)
+Exp2_data <- filter(Exp2_data,Exp2_data$subj_idx %in% good_subj2)
+
+Exp1_data$exp = factor(1)
+Exp2_data$exp = factor(2)
+
+exp_data <- rbind(Exp1_data,Exp2_data)
+exp_data <- filter(exp_data,exp_data$item_mem > 0)
+
+#do we get the same numbers as the matlab analysis:
+Brem_data <- filter(exp_data,exp_data$Bmem == 1)
+
+#filter out no responses (if exist):
+Brem_data <- filter(Brem_data,!is.na(Brem_data$resp_name))
+
+Bforg_data <- filter(exp_data,exp_data$Bmem == 0)
+Bforg_data <- filter(Bforg_data,!is.na(Bforg_data$resp_name))
+```
+
+### reproduce the effect from matlab
+```{r stats: reproduce the effect from matlab}
+all_spectral<-brewer.pal(9,"Set1")
+myspec <-all_spectral[c(4,5)]
+labels_exp <- c(
+  "1" = "Experiment 1",
+  "2" = "Experiment 2"
+)
+
+curr_data <- filter(Brem_data,Brem_data$condition < 7) #take only identical old
+sum_data_by_subj <- rbind(curr_data %>%
+  group_by(exp,subID,cond_name) %>%
+  summarise(mem_rate = sum(item_mem == 3)/n(),type = 'old_resp'),
+  curr_data %>%
+  group_by(exp,subID,cond_name) %>%
+  summarise(mem_rate = sum(item_mem == 2)/n(),type = 'sim_resp'))
+sum_data_by_subj <- arrange(sum_data_by_subj,exp,subID,type)
+
+sum_data <- data_frame(sum_data_by_subj) %>%
+  group_by(exp,cond_name,type) %>%
+  summarise(mem_rate = mean(mem_rate))
+
+#for later - count how many in each conf:
+sum_data_by_subj_count_conf <- curr_data %>%
+  group_by(exp,subID,cond_name,Bconf) %>%
+  summarise(num_conf = n())
+
+sum_data_by_subj <- arrange(sum_data_by_subj_count_conf,exp,subID,type)
+Brem_data <- arrange(Brem_data,exp,subID,cond_name,Bconf)
+
+curr_p <- ggplot(sum_data_by_subj, aes(x=type, y=mem_rate, color = cond_name,fill = cond_name)) +
+          geom_bar(position = "dodge",stat="summary", fun = "mean") +
+          scale_color_manual(values = myspec) +
+          scale_fill_manual(values = myspec) +
+          labs(x = "response type", y = "memory Rates", title = "memory rates, AB rememberred") +
+          facet_grid(.~exp) + #facet_grid(exp~type)
+          coord_cartesian(ylim =c(0,0.9)) +
+          theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+
+### bin based on confidence
+zcor <- 0
+conf_levels=c(3,4,5,6) #I tried with taking all confidence - reproduces stats from the paper
+conf_name='3,4,5,6' #'3,4,5,6'
+
+#take Brem data:
+Brem_data$z_conf <- ave(Brem_data$Bconf, Brem_data$subID, FUN=scale)
+if (zcor == 1) {
+  Brem_data$Bconf <- Brem_data$z_conf
+  Brem_data <- filter(Brem_data,abs(Brem_data$z_conf) <= 3)
+  curr_data <- filter(Brem_data,(Brem_data$condition < 7 & Brem_data$Bconf > 0)) #take only identical old, only of some confidence
+  conf_name='z_conf > 0' #'3,4,5,6'
+
+} else {
+  curr_data <- filter(Brem_data,(Brem_data$condition < 7 & Brem_data$Bconf %in% conf_levels)) #take only identical old, only of some confidence
+  #if 4,5,6 exclude the following participants - do not have high conf:
+#curr_data <- filter(curr_data,!(curr_data$subj_idx == 32 & curr_data$exp == 1))
+#curr_data <- filter(curr_data,!(curr_data$subj_idx == 31 & curr_data$exp == 2))
+} 
+
+
+sum_data_by_subj <- rbind(curr_data %>%
+  group_by(exp,subID,cond_name) %>%
+  summarise(mem_rate = sum(item_mem == 3)/n(),type = 'old_resp'),
+  curr_data %>%
+  group_by(exp,subID,cond_name) %>%
+  summarise(mem_rate = sum(item_mem == 2)/n(),type = 'sim_resp'))
+sum_data_by_subj <- arrange(sum_data_by_subj,exp,subID,type)
+
+sum_data <- data_frame(sum_data_by_subj) %>%
+  group_by(exp,cond_name,type) %>%
+  summarise(mem_sd = sd(mem_rate)/sqrt(n()),
+            mem_rate = mean(mem_rate))
+
+#hack to reverse the values:
+sum_data$cond_name_reversed <- if_else(sum_data$cond_name == 'no_viol_old','viol_old','no_viol_old')
+
+curr_p <- ggplot(sum_data_by_subj, aes(x=type, y=mem_rate, color = cond_name,fill = cond_name)) +
+          geom_bar(position = position_dodge2(reverse = TRUE),stat="summary", fun = "mean") +
+          geom_errorbar(data = sum_data, aes(x=type, ymin=mem_rate-mem_sd, ymax=mem_rate+mem_sd,color = cond_name_reversed), width=.2, position = position_dodge(.9)) +
+          scale_color_manual(values = c('black','black')) +
+          scale_fill_manual(values = myspec) +
+          labs(x = "response type", y = "response rates", title = sprintf("AB remembered, conf: %s",conf_name)) +
+          facet_grid(.~exp, labeller = labeller(exp = labels_exp)) + #facet_grid(exp~type)
+          coord_cartesian(ylim =c(0,0.9)) +
+          theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+
+#stats:
+Exp1_data_by_subj <- data_frame(sum_data_by_subj)
+Exp1_data_by_subj <- filter(Exp1_data_by_subj,Exp1_data_by_subj$exp==1)
+
+Exp2_data_by_subj <- data_frame(sum_data_by_subj)
+Exp2_data_by_subj <- filter(Exp2_data_by_subj,Exp2_data_by_subj$exp==2)
+
+curr_exp_data <- Exp1_data_by_subj #Exp2_data_by_subj
+res.aov <- aov(mem_rate ~ cond_name*type + Error(subID/(cond_name*type)), data = curr_exp_data)
+res.aov <- anova_test(data = curr_exp_data, dv = mem_rate, wid = subID, within = c(cond_name,type))
+get_anova_table(res.aov)
+print(anova_summary(res.aov, detailed = TRUE, effect.size = "pes"))
+
+#ttest 'old' responses for old items - violation  vs. no-violation
+data_wide <- dcast(curr_exp_data, subID ~ cond_name + type,value.var="mem_rate")
+t.test(data_wide$viol_old_old_resp,data_wide$no_viol_old_old_resp,paired=TRUE)
+diff <- data_wide$viol_old_old_resp - data_wide$no_viol_old_old_resp
+CohenD = mean(diff) / sd(diff)
+print(sprintf('CohenD is: %.2f',CohenD))
+
+t.test(data_wide$viol_old_sim_resp,data_wide$no_viol_old_sim_resp,paired=TRUE)
+diff <- data_wide$viol_old_sim_resp - data_wide$no_viol_old_sim_resp
+CohenD = mean(diff) / sd(diff)
+print(sprintf('CohenD is: %.2f',CohenD))
+
+```
+
+### Things for power Exp3 (rev. 2 comment)
+```{r for power analysis}
+##### for REV2, we needed to do power analysis, I used PANGEA, because the difference btw studies is in the number of observations. To use that, we need to estimate the variance in a mixed level model:
+curr_data <- filter(Brem_data,Brem_data$condition < 7 & Brem_data$exp==2)
+
+# the memory rates in the paper are % of identical old responses in the total bin - so include all responses in the binomial model
+curr_data <- curr_data %>%
+  mutate(item_mem = if_else(item_mem == 3, 1,0))
+
+null_mdl=glmer(item_mem ~ (1 | subID),data = curr_data,family = binomial) #I think family = binomial(link = "logit") is the default - tried with and without - the same
+full_mdl=glmer(resp_name ~ cond_name + (1 | subID),data = curr_data,family = binomial)
+print(anova(null_mdl,full_mdl))
+curr_AIC <- AIC(null_mdl,full_mdl)
+print(sprintf("AIC diff: %.2f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+print("")
+print(summary(full_mdl))
+#from that - I took the variance of the residuals to input as var(err) in PANGEA: 
+sd(residuals(full_mdl))*sd(residuals(full_mdl))
+#for var(P*V) I left the default value: .167
+
+#another approach is to examine how many items we had for confidence: 
+conf_levels=c(4,5,6) #I tried with taking all confidence - reproduces stats from the paper
+curr_data$bin_conf <- if_else(curr_data$Bconf %in% conf_levels, 1, 0)
+
+sum_data_by_subj <- curr_data %>%
+  group_by(exp,subID) %>%
+  summarise(conf_rate = sum(bin_conf)/36,
+            conf_num = sum(bin_conf))
+  
+sum_data <- data_frame(sum_data_by_subj) %>%
+  summarise(conf_rate = mean(conf_rate),
+            conf_num = mean(conf_num))
+  
+
+```
+
+### stats for confidence
+```{r stats for confidence}
+all_spectral<-brewer.pal(9,"Set1")
+myspec <-all_spectral[c(4,5)]
+curr_exp <- 2
+zcor <- 1
+
+#take Brem data:
+curr_exp_data <- filter(Brem_data, Brem_data$exp == curr_exp)
+curr_exp_data$z_conf <- ave(curr_exp_data$Bconf, curr_exp_data$subID, FUN=scale)
+if (zcor == 1) {
+  curr_exp_data$Bconf <- curr_exp_data$z_conf
+  curr_exp_data <- filter(curr_exp_data,abs(curr_exp_data$z_conf) <= 3)
+}
+
+#take Bforg data:
+#curr_exp_data <- filter(Bforg_data, Bforg_data$exp == curr_exp)
+#first, I want to see, only within B remembered, when saying old on 'old' items, there is an interaction such that confidence predicts old more so for violations compared to no-violations, but not similar:
+curr_data <- filter(curr_exp_data,curr_exp_data$item_mem > 1) #'new' responses complete to 1 - they are dependent on old/similar - remove them (can also run the analysis with removing similar... or do multinomial - but how does one interpret this multinomial?)
+curr_data <- filter(curr_data,curr_data$condition < 7 )
+
+null_mdl=glmer(resp_name ~ Bconf + cond_name + (1 | subID),data = curr_data,family = binomial) #I think family = binomial(link = "logit") is the default - tried with and without - the same
+full_mdl=glmer(resp_name ~ Bconf * cond_name + (1 | subID),data = curr_data,family = binomial)
+
+#just my check - putting numbers instead of labels - same:
+# null_mdl=glmer(item_mem-2 ~ Bconf + cond_name + (1 | subID),data = curr_data,family = binomial(link = "logit"))
+# full_mdl=glmer(item_mem-2 ~ Bconf * cond_name + (1 | subID),data = curr_data,family = binomial(link = "logit"))
+
+print("IDENTICAL OLD ITEMS, old/similar responses, only Brem, effect of Bconf:")
+print(anova(null_mdl,full_mdl))
+curr_AIC <- AIC(null_mdl,full_mdl)
+print(sprintf("AIC diff: %.2f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+print("")
+
+#within violation/no-violation - is there an effect of confidence?
+vnv_data <- filter(curr_data,curr_data$cond_name == 'viol_old')
+null_mdl=glmer(item_mem-2 ~ (1 | subID),data = vnv_data,family = binomial)
+full_mdl=glmer(item_mem-2 ~ Bconf + (1 | subID),data = vnv_data,family = binomial)
+print("IDENTICAL OLD ITEMS, ONLY VIOLATION: old/similar responses, only Brem, effect of Bconf:")
+print(anova(null_mdl,full_mdl))
+curr_AIC <- AIC(null_mdl,full_mdl)
+print(sprintf("AIC diff: %.2f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+print("")
+
+#within violation/no-violation - is there an effect of confidence?
+vnv_data <- filter(curr_data,curr_data$cond_name == 'no_viol_old')
+null_mdl=glmer(item_mem-2 ~ (1 | subID),data = vnv_data,family = binomial)
+full_mdl=glmer(item_mem-2 ~ Bconf + (1 | subID),data = vnv_data,family = binomial)
+print("IDENTICAL OLD ITEMS, ONLY NO-VIOLATION: old/similar responses, only Brem, effect of Bconf:")
+print(anova(null_mdl,full_mdl))
+curr_AIC <- AIC(null_mdl,full_mdl)
+print(sprintf("AIC diff: %.2f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+print("")
+
+#fill = myspec facet_grid(.~resp_name) +          geom_smooth(method=lm) + 
+p1 <- ggplot(curr_data, aes(x=Bconf, y=item_mem-2, color = cond_name,fill = cond_name)) +
+          geom_jitter(shape=19, size = 1, alpha = .6) +
+          geom_smooth(method = glm, method.args= list(family="binomial")) +
+          scale_color_manual(values = myspec) +
+          scale_fill_manual(values = myspec) +
+          labs(x = "Bmem confidence (only correct)", y = "memory Rates", title = "Identical old items, 'old' vs. 'sim' responses") +
+          theme_bw() +
+          theme(panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                legend.position = "none")
+
+#now compare to new:
+curr_data <- filter(curr_exp_data,curr_exp_data$item_mem == 1 | curr_exp_data$item_mem == 3) #'new' responses complete to 1 - they are dependent on old/similar - remove them (can also run the analysis with removing similar... or do multinomial - but how does one interpret this multinomial?)
+
+curr_data <- filter(curr_data,curr_data$condition < 7 )
+curr_data <- curr_data %>%
+  mutate(item_mem = if_else(item_mem == 3, 1,0))
+
+null_mdl=glmer(resp_name ~ Bconf + cond_name + (1 | subID),data = curr_data,family = binomial) #I think family = binomial(link = "logit") is the default - tried with and without - the same
+full_mdl=glmer(resp_name ~ Bconf * cond_name + (1 | subID),data = curr_data,family = binomial)
+
+#just my check - putting numbers instead of labels - same:
+# null_mdl=glmer(item_mem-2 ~ Bconf + cond_name + (1 | subID),data = curr_data,family = binomial(link = "logit"))
+# full_mdl=glmer(item_mem-2 ~ Bconf * cond_name + (1 | subID),data = curr_data,family = binomial(link = "logit"))
+
+print("IDENTICAL OLD ITEMS, old/new responses, only Brem, effect of Bconf:")
+print(anova(null_mdl,full_mdl))
+curr_AIC <- AIC(null_mdl,full_mdl)
+print(sprintf("AIC diff: %.2f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+print("")
+
+p2 <- ggplot(curr_data, aes(x=Bconf, y=item_mem, color = cond_name,fill = cond_name)) +
+          geom_jitter(shape=19, size = 1, alpha = .6) +
+          geom_smooth(method = glm, method.args= list(family="binomial")) +
+          scale_color_manual(values = myspec) +
+          scale_fill_manual(values = myspec) +
+          labs(x = "Bmem confidence (only correct)", y = "memory Rates", title = "Identical old items, 'old' vs. 'new' responses") +
+          theme_bw() +
+          theme(panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                legend.position = "none")
+#within violation/no-violation - is there an effect of confidence?
+vnv_data <- filter(curr_data,curr_data$cond_name == 'viol_old')
+null_mdl=glmer(item_mem ~ (1 | subID),data = vnv_data,family = binomial)
+full_mdl=glmer(item_mem ~ Bconf + (1 | subID),data = vnv_data,family = binomial)
+print("IDENTICAL OLD ITEMS, ONLY VIOLATION: old/new responses, only Brem, effect of Bconf:")
+print(anova(null_mdl,full_mdl))
+curr_AIC <- AIC(null_mdl,full_mdl)
+print(sprintf("AIC diff: %.2f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+print("")
+
+#within violation/no-violation - is there an effect of confidence?
+vnv_data <- filter(curr_data,curr_data$cond_name == 'no_viol_old')
+null_mdl=glmer(item_mem ~ (1 | subID),data = vnv_data,family = binomial)
+full_mdl=glmer(item_mem ~ Bconf + (1 | subID),data = vnv_data,family = binomial)
+print("IDENTICAL OLD ITEMS, ONLY NO-VIOLATION: old/new responses, only Brem, effect of Bconf:")
+print(anova(null_mdl,full_mdl))
+curr_AIC <- AIC(null_mdl,full_mdl)
+print(sprintf("AIC diff: %.2f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+print("") 
+
+#now compare old to sim+new - 
+curr_data <- curr_exp_data %>%
+  mutate(item_mem = if_else(item_mem == 3, 1,0))
+curr_data <- filter(curr_data,curr_data$condition < 7)
+
+null_mdl=glmer(resp_name ~ Bconf + cond_name + (1 | subID),data = curr_data,family = binomial) #I think family = binomial(link = "logit") is the default - tried with and without - the same
+full_mdl=glmer(resp_name ~ Bconf * cond_name + (1 | subID),data = curr_data,family = binomial)
+
+#just my check - putting numbers instead of labels - same:
+# null_mdl=glmer(item_mem-2 ~ Bconf + cond_name + (1 | subID),data = curr_data,family = binomial(link = "logit"))
+# full_mdl=glmer(item_mem-2 ~ Bconf * cond_name + (1 | subID),data = curr_data,family = binomial(link = "logit"))
+
+print("IDENTICAL OLD ITEMS, old/sim +new responses, only Brem, effect of Bconf:")
+print(anova(null_mdl,full_mdl))
+curr_AIC <- AIC(null_mdl,full_mdl)
+print(sprintf("AIC diff: %.2f", curr_AIC$AIC[2]-curr_AIC$AIC[1]))
+print("")
+
+p3 <- ggplot(curr_data, aes(x=Bconf, y=item_mem, color = cond_name,fill = cond_name)) +
+          geom_jitter(shape=19, size = 1, alpha = .6) +
+          geom_smooth(method = glm, method.args= list(family="binomial")) +
+          scale_color_manual(values = myspec) +
+          scale_fill_manual(values = myspec) +
+          labs(x = "Bmem confidence (only correct)", y = "memory Rates", title = "Identical old items, 'old' vs. 'sim+new' responses") +
+          theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+grid.arrange(p1, p2, p3, ncol=3)
+
+## make the plot of both experiments, for the response to reviewers:
+zcor <- 1
+#Exp1
+curr_exp <- 1
+#take Brem data:
+curr_exp_data <- filter(Brem_data, Brem_data$exp == curr_exp)
+curr_exp_data$z_conf <- ave(curr_exp_data$Bconf, curr_exp_data$subID, FUN=scale)
+if (zcor == 1) {
+  curr_exp_data$Bconf <- curr_exp_data$z_conf
+  curr_exp_data <- filter(curr_exp_data,abs(curr_exp_data$z_conf) <= 3)
+}
+
+curr_data <- curr_exp_data %>%
+  mutate(item_mem = if_else(item_mem == 3, 1,0))
+curr_data <- filter(curr_data,curr_data$condition < 7)
+
+p4 <- ggplot(curr_data, aes(x=Bconf, y=item_mem, color = cond_name,fill = cond_name)) +
+          geom_point(shape=19, size = 1, alpha = .6) +
+          geom_smooth(method = glm, method.args= list(family="binomial")) +
+          scale_color_manual(values = myspec) +
+          scale_fill_manual(values = myspec) +
+          labs(x = "Bmem confidence (only correct)", y = "Responses", title = "Identical old items, 'old' vs. 'sim+new' responses") +
+          theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+#Exp2
+curr_exp <- 2
+#take Brem data:
+curr_exp_data <- filter(Brem_data, Brem_data$exp == curr_exp)
+curr_exp_data$z_conf <- ave(curr_exp_data$Bconf, curr_exp_data$subID, FUN=scale)
+if (zcor == 1) {
+  curr_exp_data$Bconf <- curr_exp_data$z_conf
+  curr_exp_data <- filter(curr_exp_data,abs(curr_exp_data$z_conf) <= 3)
+}
+
+curr_data <- curr_exp_data %>%
+  mutate(item_mem = if_else(item_mem == 3, 1,0))
+curr_data <- filter(curr_data,curr_data$condition < 7)
+
+p5 <- ggplot(curr_data, aes(x=Bconf, y=item_mem, color = cond_name,fill = cond_name)) +
+          geom_point(shape=19, size = 1, alpha = .6) +
+          geom_smooth(method = glm, method.args= list(family="binomial")) +
+          scale_color_manual(values = myspec) +
+          scale_fill_manual(values = myspec) +
+          labs(x = "Bmem confidence (only correct)", y = "Responses", title = "Identical old items, 'old' vs. 'sim+new' responses") +
+          theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+grid.arrange(p4, p5, ncol=2)
+
+
+```
+
+# analyse Associative test
+### load data and stats
+```{r analyse associative test}
+
+results_dir <- paste(proj_dir,"simPEL11_onlyConsSameSimilarItemTask/analysis/files_forR",sep="/")
+setwd(results_dir)
+
+#load all data:
+all_exp_data <- read.table(paste(results_dir, "simPEL9_11ass_11item_ExpPart2.txt",sep="/"),header = TRUE,sep = "\t",dec = ".")
+all_exp_data <- all_exp_data  %>%
+  mutate(Experiment = factor(Experiment),
+         subID = factor(subject),
+         viol = ifelse(viol_intact == 1,'violation','no-violation'))
+
+
+## compute ANOVA for Exp1 vs. Exp3 - reported.
+curr_data <- all_exp_data
+behav_data <- filter(curr_data,curr_data$Experiment != 2)
+
+res.aov <- aov(Bmem_rates ~ Experiment*viol + Error(subID/viol), data = behav_data)
+print(anova_summary(res.aov, detailed = TRUE, effect.size = "pes"))
+
+## compute ANOVA for Exp2 vs. Exp3 - reported.
+behav_data <- filter(curr_data,curr_data$Experiment != 1)
+
+res.aov <- aov(Bmem_rates ~ Experiment*viol + Error(subID/viol), data = behav_data)
+print(anova_summary(res.aov, detailed = TRUE, effect.size = "pes"))
+
+
+
+
+
+```
